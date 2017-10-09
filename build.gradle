@@ -1,75 +1,95 @@
 apply plugin: 'java'
 
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+compileJava.options.encoding = 'utf-8'
+compileTestJava.options.encoding = 'utf-8'
+
 repositories {
+	maven{ url 'http://maven.aliyun.com/nexus/content/groups/public/'}
     jcenter()
 }
 
 dependencies {
-
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
     implementation 'com.google.guava:guava:21.0'
-
-    // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
     
-    // https://mvnrepository.com/artifact/org.slf4j/slf4j-api
 	compile group: 'org.slf4j', name: 'slf4j-api', version: '1.7.25'
-	// https://mvnrepository.com/artifact/org.slf4j/jcl-over-slf4j
-	//compile group: 'org.slf4j', name: 'jcl-over-slf4j', version: '1.7.25'
-	// https://mvnrepository.com/artifact/ch.qos.logback/logback-classic
 	compile group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
-	// https://mvnrepository.com/artifact/ch.qos.logback/logback-core
 	compile group: 'ch.qos.logback', name: 'logback-core', version: '1.2.3'
 }
 
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
-compileJava.options.encoding = 'UTF-8'
-compileTestJava.options.encoding = 'UTF-8'
+task wrapper(type: Wrapper) {
+    gradleVersion = '4.0.2'
+}
 
-jar {
-    manifest {
-        attributes(
-                "Manifest-Version": 1.0,
-                'Main-Class': 'Library'
-        )
-    }
+ext {
+	supportedProfiles = ['debug','dev','qa','production'] 
 }
 
 processResources {
     exclude { "**/*.*" }
 }
 
-task addDependToManifest() {
-    if (!configurations.runtime.isEmpty()) {
-        jar.manifest.attributes('Class-Path': "../resources/ " + configurations.runtime.collect { it.name }.join(' '))
+// Validate `-Pprofile=..`
+task validateProfile {
+    doLast {
+        if (project.hasProperty('profile')) {
+            println "*** Building with profile `$project.profile` ***"
+            
+            if (!project.supportedProfiles.contains(project.profile)) {
+                throw new GradleException("Profile $project.profile not found");
+            }
+        } else {
+            throw new GradleException("Build profile not specified (-Pprofile=..)");
+        }
     }
-    println 'addDependToManifest'
 }
-jar.dependsOn += addDependToManifest
 
-task copyDependencies(type: Copy) {
+jar { 
+    manifest {
+        attributes(
+        	"Manifest-Version": 1.0,
+        	'Main-Class': 'Library',
+        	'Class-Path': "../resources/ " + configurations.runtime.collect { it.name }.join(' ')
+        )
+    }
+}
+jar.dependsOn validateProfile
+
+task copyDependJar(type: Copy) {
 	from configurations.runtime
 	destinationDir = file('build/libs/')
-	println 'copyDependencies'
+	println 'copy depend jar files.'
 }
-jar.dependsOn += copyDependencies
 
 task copyResources(type: Copy) {
     sourceSets.main.resources.srcDirs.each {
         from it
         into "build/resources"
     }
-    println 'copyResources'
+    println 'copy resources files.'
 }
-jar.dependsOn += copyResources
 
-task copyLauncher(type:Copy) {
-	from "misc/launcher.bat"
-	into "build/"
-	println 'copyLauncher' 
+task copyLauncher(type: Copy) {
+	from ("misc") {
+		include("**/*.bat","**/*.sh")
+	}
+	into "build"
+	println 'copy launcher files.' 
 }
-jar.dependsOn += copyLauncher
 
-println 'build complete!'
+task delTemp(type: Delete) {
+	 delete "build/classes"
+	 delete "build/reports"
+	 delete "build/test-results"
+	 delete "build/tmp"
+}
+
+task release(dependsOn:[build,copyDependJar,copyResources,copyLauncher,delTemp]) {
+	println "release $project.name complete!"
+	println "$project.profile"
+}
+
+// gradlew release -Pprofile=test 
 
